@@ -213,7 +213,28 @@ h1 {
 .feed-button:active {
     transform: scale(1.5);
 }
- 
+
+.select-eyes {
+    background: var(--teal);
+    color: #fff;
+    border: none;
+    border-radius: 999px;
+    padding: 16px 16px;
+    font-family: 'Baloo 2', sans-serif;
+    font-size: 1.05rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.15s ease, transform 0.1s ease;
+}
+
+.select-eyes:hover {
+    background: var(--teal-dark);
+}
+
+.select-eyes:active {
+    transform: scale(1.5);
+}
+
 /* ---------------- Game screen ---------------- */
 #game-screen {
     position: relative;

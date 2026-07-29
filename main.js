@@ -1,5 +1,8 @@
 // ============================================================
 // CONFIG / CONSTANTS
+ 
+//const { text } = require("express");
+ 
 // ============================================================
 const SCORE_THRESHOLD = 150;   // below this, face becomes sad
 const SCORE_DECAY = 0.1;       // score lost per frame
@@ -10,14 +13,24 @@ const EYEBAG_EASE = 0.3;       // lerp speed for eye bag animation
 let CHEEK_SIZE_REST; // size of cheeks
 let CHEEK_SIZE_PRESSED; // size of cheeks when pressed
 const EXCITED_DURATION = 500; // ms the "isUp" state lasts after a click
+
 let button;
-let food = ['🥐', '🍕', '🌭', '🍗', '🍙', '🍤', '🍛', '🥟', '🌯', '🍩', '🍪', '🥞', '🧇'];
+let eyeLeft;
+let eyeRight;
+
+let food = ['🥐', '🍕', '🌭', '🍗', '🍙', '🍤', '🍛', '🥟', '🌯', '🍩', '🍪', '🥞', '🧇', '🍚', '🍜', '🍥', '🍔', '🍣', '🍱'];
+let eyeType = ["normal", "cute", "square", "star", "triangle"]
+let pointer = 0
+
+
 let currentFood = null; // which emoji is currently "in" the mouth, or null
- 
+let r, g, b; 
+
 // ============================================================
 // STATE
 // ============================================================
 let score = 100;
+let scoreText;
 let eyeBagYPos, targetEyeBagYPos;
 let isUp = false;
 let isOpen = false;
@@ -41,7 +54,11 @@ const BLINK_EASE = 0.5;
 // P5 LIFECYCLE
 // ============================================================
 function setup() {
+
+    pointer = constrain(pointer, 0, eyeType.length);
+
     angleMode(DEGREES);
+    rectMode(CENTER);
     createCanvas(windowWidth, windowHeight).parent("game-screen");
     document.oncontextmenu = () => false;
  
@@ -55,7 +72,8 @@ function setup() {
     targetLeftCheekSize = CHEEK_SIZE_REST;
     rightCheekSize = CHEEK_SIZE_REST;
     targetRightCheekSize = CHEEK_SIZE_REST;
- 
+    
+    //feed button
     button = createButton('FEED', 'red');
     button.parent("game-screen");
     button.position(windowWidth / 2 - 128 - 10, 3 * windowHeight / 4)
@@ -69,7 +87,52 @@ function setup() {
             }, 500);
     });
     button.addClass('feed-button');
-    // Don't animate/decay until a room connection is live.
+
+    //button left
+    eyeLeft = createButton('<');
+    eyeLeft.parent("game-screen");
+    eyeLeft.position(18 * windowWidth / 20, 100);
+    eyeLeft.mousePressed(() => {
+        pointer = constrain(pointer + 1, 0, eyeType.length - 1);
+    });
+    
+    //button left
+    eyeRight = createButton('>');
+    eyeRight.parent("game-screen");
+    eyeRight.position(18 * windowWidth / 20 + 75, 100);
+    eyeRight.mousePressed(() => {
+        pointer = constrain(pointer - 1, 0, eyeType.length - 1);
+    });
+
+    eyeRight.addClass("select-eyes");
+    eyeLeft.addClass("select-eyes");
+
+    //customisation
+    r = createSlider(0, 255, 255, 1);
+    g = createSlider(0, 255, 222, 1);
+    b = createSlider(0, 255, 52, 1);
+ 
+    r.position( 18 * windowWidth / 20, 20);
+    g.position(18 * windowWidth / 20, 40);
+    b.position( 18 * windowWidth / 20, 60);
+ 
+    r.size(80);
+    g.size(80);
+    b.size(80);
+ 
+    r.parent("game-screen");
+    g.parent("game-screen");
+    b.parent("game-screen");
+ 
+    // Broadcast the color to everyone else in the room whenever a slider
+    // moves. .input() fires continuously while dragging (not just on
+    // release), so the color updates live for other people as you drag too.
+    r.input(broadcastColorChange);
+    g.input(broadcastColorChange);
+    b.input(broadcastColorChange);
+
+
+     // Don't animate/decay until a room connection is live.
     noLoop();
 }
  
@@ -95,7 +158,7 @@ function windowResized() {
 // ============================================================
 function drawBackground() {
     noStroke();
-    background(255, 222, 52);
+    background(r.value(), g.value(), b.value());
 }
  
 function drawFace() {
@@ -140,7 +203,9 @@ function drawScore() {
  
         noStroke();
         fill(isPositive ? [40, 200, 90, alpha] : [220, 60, 60, alpha]);
-        text((isPositive ? "+" : "") + s.value, s.x, s.y);
+        textSize(48);
+        text("❤️", s.x, s.y);
+ 
     }
     textAlign(LEFT, BASELINE); // restore default for drawScore()'s own text() call above
  
@@ -159,7 +224,7 @@ function eyes(x, y, size, gap) {
     drawPupil(leftX, y, size);
     drawPupil(rightX, y, size);
  
-    fill(255, 214, 0);
+    fill(r.value() * 0.95, g.value() * 0.95, b.value() * 0.95);
     arc(leftX, y + eyeBagYPos, size + 10, size + 10, 0, 180);
     arc(rightX, y + eyeBagYPos, size + 10, size + 10, 0, 180);
  
@@ -176,12 +241,48 @@ function drawPupil(eyeX, eyeY, eyeSize) {
     const maxOffset = eyeSize / 2 - pupilSize / 2 - 4;
  
     const angle = atan2(mouseY - eyeY, mouseX - eyeX);
-    const pupilX = eyeX + cos(angle) * maxOffset;
-    const pupilY = eyeY + sin(angle) * maxOffset;
+    const dx = cos(angle) * maxOffset;
+    const dy = sin(angle) * maxOffset;
+
+    const pupilX = eyeX + dx;
+    const pupilY = eyeY + dy;
+
+    const pupil2X = eyeX - dx;
+    const pupil2Y = eyeY - dy;
  
     fill(255);
-    ellipse(pupilX, pupilY, pupilSize, pupilSize * eyeOpenAmount);
+    if (eyeType[pointer] == "normal") {
+        ellipse(pupilX, pupilY, pupilSize, pupilSize * eyeOpenAmount);
+    } else if (eyeType[pointer] == "cute") {
+        //hard
+        fill(255);
+        ellipse(pupilX, pupilY, pupilSize, pupilSize * eyeOpenAmount);
+        ellipse(pupil2X, pupil2Y, pupilSize, pupilSize * eyeOpenAmount);
+    } else if (eyeType[pointer] == "square") {
+        rect(pupilX, pupilY, pupilSize, pupilSize * eyeOpenAmount);
+    } else if (eyeType[pointer] == "star") {
+        star(pupilX, pupilY, pupilSize * eyeOpenAmount, (pupilSize - 50) * eyeOpenAmount, 4);
+    } else if (eyeType[pointer] == "triangle") {
+        triangle(pupilX - 30, pupilY + 30, pupilX + 30, pupilY + 30, pupilX, (pupilY - 30) * eyeOpenAmount)
+    }
 }
+
+//credit: https://archive.p5js.org/examples/form-star.html
+function star(x, y, radius1, radius2, npoints) {
+  let angle = 360 / npoints;
+  let halfAngle = angle / 2.0;
+  beginShape();
+  for (let a = 0; a < 360; a += angle) {
+    let sx = x + cos(a) * radius2;
+    let sy = y + sin(a) * radius2;
+    vertex(sx, sy);
+    sx = x + cos(a + halfAngle) * radius1;
+    sy = y + sin(a + halfAngle) * radius1;
+    vertex(sx, sy);
+  }
+  endShape(CLOSE);
+}
+
  
 function mouth(x, y, size, width) {
     const isHappy = !isSadOverride && score > SCORE_THRESHOLD;
@@ -193,7 +294,7 @@ function mouth(x, y, size, width) {
     fill(0);
     arc(x, y, size, size, outerStart, outerEnd);
  
-    fill(255, 222, 52);
+    fill(r.value(), g.value(), b.value());
     arc(x, y + innerYOffset, size - width, size - width, outerStart, outerEnd);
     } else if (isOpen === true){
         fill(0);
@@ -235,6 +336,35 @@ function updateCheekSizes() {
  
     targetRightCheekSize = isRightUp ? CHEEK_SIZE_PRESSED : CHEEK_SIZE_REST;
     rightCheekSize = lerp(rightCheekSize, targetRightCheekSize, EYEBAG_EASE);
+}
+ 
+// ============================================================
+// COLOR SYNC (sliders are shared state, just like score)
+// ============================================================
+// Called whenever THIS person drags any of the r/g/b sliders. Broadcasts
+// the new color to everyone else in the room so their sliders and
+// rendering update to match.
+function broadcastColorChange() {
+    if (typeof window.sendColorChange === "function") {
+        window.sendColorChange({ r: r.value(), g: g.value(), b: b.value() });
+    }
+}
+ 
+// Called by lobby.js when a color change arrives from someone else in the
+// room (or from the host's periodic sync). Moves this person's own
+// sliders to match — draw() reads r.value()/g.value()/b.value() every
+// frame, so the face updates automatically once the sliders are set.
+function receiveColorChange(color) {
+    if (!color) return;
+    r.value(color.r);
+    g.value(color.g);
+    b.value(color.b);
+}
+ 
+// Returns the current color as a plain object, so lobby.js can include it
+// in periodic syncs without needing to know about r/g/b directly.
+function getCurrentColor() {
+    return { r: r.value(), g: g.value(), b: b.value() };
 }
  
 // ============================================================

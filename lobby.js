@@ -9,37 +9,37 @@
 //
 // The host relays every action to every client (star topology), so any
 // number of people can share one room, not just two.
- 
+
 const ID_PREFIX = "smiley-room-v1-";
 const SYNC_INTERVAL_MS = 3000;
- 
+
 window.roomConnected = false;
- 
+
 let peer = null;
 let isHost = false;
 let clientConnections = []; // host only: connections to every client
 let hostConnection = null;  // client only: connection to the host
- 
+
 const lobbyScreen = document.getElementById("lobby-screen");
 const gameScreen = document.getElementById("game-screen");
 const codeInput = document.getElementById("room-code-input");
 const enterBtn = document.getElementById("enter-room-btn");
 const statusEl = document.getElementById("lobby-status");
 const roomLabel = document.getElementById("room-label");
- 
+
 enterBtn.addEventListener("click", attemptEnterRoom);
 codeInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") attemptEnterRoom();
 });
- 
+
 function sanitizeCode(raw) {
     return raw.trim().toLowerCase().replace(/[^a-z0-9-]/g, "");
 }
- 
+
 function setStatus(msg) {
     statusEl.textContent = msg;
 }
- 
+
 function attemptEnterRoom() {
     const code = sanitizeCode(codeInput.value);
     if (!code) {
@@ -49,24 +49,25 @@ function attemptEnterRoom() {
     enterBtn.disabled = true;
     codeInput.disabled = true;
     setStatus("Connecting…");
- 
+
     const peerId = ID_PREFIX + code;
- 
+
     // First, try to claim the code ourselves (becoming the host).
     peer = new Peer(peerId);
- 
+
     peer.on("open", () => {
         // Nobody else had this code yet — we're the host.
         isHost = true;
         setStatus("Room created. Waiting for others to join…");
         enterRoomUI(code);
- 
+
         peer.on("connection", (conn) => {
             clientConnections.push(conn);
             conn.on("open", () => {
                 setStatus(`${clientConnections.length} connected`);
-                // Bring the new arrival up to date with the current score.
-                conn.send({ kind: "sync", score: getCurrentScore() });
+                // Bring the new arrival up to date with the current score
+                // AND color, so they don't start on default values.
+                conn.send({ kind: "sync", score: getCurrentScore(), color: getCurrentColorSafe() });
             });
             conn.on("data", (msg) => handleIncomingFromClient(msg, conn));
             conn.on("close", () => {
@@ -74,14 +75,14 @@ function attemptEnterRoom() {
                 setStatus(`${clientConnections.length} connected`);
             });
         });
- 
-        // Periodically broadcast the authoritative score so everyone
-        // stays roughly in sync even without new clicks happening.
+
+        // Periodically broadcast the authoritative score AND color so
+        // everyone stays roughly in sync even without new clicks/drags.
         setInterval(() => {
-            broadcastToClients({ kind: "sync", score: getCurrentScore() });
+            broadcastToClients({ kind: "sync", score: getCurrentScore(), color: getCurrentColorSafe() });
         }, SYNC_INTERVAL_MS);
     });
- 
+
     peer.on("error", (err) => {
         if (err.type === "unavailable-id") {
             // Someone already hosts this room — join them as a client instead.
@@ -93,7 +94,7 @@ function attemptEnterRoom() {
         }
     });
 }
- 
+
 function joinAsClient(code) {
     const hostId = ID_PREFIX + code;
     peer = new Peer(); // random ID for ourselves
@@ -116,7 +117,7 @@ function joinAsClient(code) {
         codeInput.disabled = false;
     });
 }
- 
+
 function enterRoomUI(code) {
     roomLabel.textContent = code;
     lobbyScreen.classList.add("hidden");
@@ -124,7 +125,7 @@ function enterRoomUI(code) {
     window.roomConnected = true;
     if (typeof startSharedFace === "function") startSharedFace();
 }
- 
+
 // ------------------------------------------------------------
 // Message handling
 // ------------------------------------------------------------
@@ -135,40 +136,65 @@ function handleIncomingFromClient(msg, fromConn) {
         for (const conn of clientConnections) {
             if (conn !== fromConn) conn.send(msg);
         }
+    } else if (msg.kind === "color") {
+        if (typeof receiveColorChange === "function") receiveColorChange(msg.color);
+        // Relay to every other client so everyone's slider/face matches.
+        for (const conn of clientConnections) {
+            if (conn !== fromConn) conn.send(msg);
+        }
     }
 }
- 
+
 function handleIncomingFromHost(msg) {
     if (msg.kind === "actions") {
         applyIncomingActions(msg.actions);
+    } else if (msg.kind === "color") {
+        if (typeof receiveColorChange === "function") receiveColorChange(msg.color);
     } else if (msg.kind === "sync") {
         if (typeof receiveScoreSync === "function") receiveScoreSync(msg.score);
+        if (msg.color && typeof receiveColorChange === "function") receiveColorChange(msg.color);
     }
 }
- 
+
 function applyIncomingActions(actions) {
     if (typeof applyAction !== "function") return;
     let totalDelta = 0;
     for (const action of actions) totalDelta += applyAction(action);
- 
+
     // Someone else in the room clicked — show it here too. We don't know
     // their cursor position, so pop it up near the score counter instead.
     if (typeof showScorePopup === "function" && typeof width !== "undefined") {
         showScorePopup(totalDelta, width / 2, 60);
     }
 }
- 
+
 function broadcastToClients(msg) {
     for (const conn of clientConnections) conn.send(msg);
 }
- 
+
 function getCurrentScore() {
     return typeof score !== "undefined" ? score : 100;
 }
- 
+
+// Safe wrapper in case getCurrentColor() (defined in main.js) isn't ready
+// yet for some reason — avoids crashing the sync interval.
+function getCurrentColorSafe() {
+    return typeof getCurrentColor === "function" ? getCurrentColor() : null;
+}
+
 // Called by main.js whenever a local click happens.
 window.sendRoomAction = function (actions) {
     const msg = { kind: "actions", actions };
+    if (isHost) {
+        broadcastToClients(msg);
+    } else if (hostConnection) {
+        hostConnection.send(msg);
+    }
+};
+
+// Called by main.js whenever the local player drags an r/g/b slider.
+window.sendColorChange = function (color) {
+    const msg = { kind: "color", color };
     if (isHost) {
         broadcastToClients(msg);
     } else if (hostConnection) {
